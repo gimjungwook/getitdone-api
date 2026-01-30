@@ -13,8 +13,8 @@ from src.opencode_api.core.config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     register_provider(LiteLLMProvider())
-    register_provider(AnthropicProvider())
-    register_provider(OpenAIProvider())
+    # register_provider(AnthropicProvider())  # QA: 모델 제한으로 비활성화
+    # register_provider(OpenAIProvider())  # QA: 모델 제한으로 비활성화
     register_provider(GeminiProvider(api_key=settings.google_api_key))
     
     # Register tools

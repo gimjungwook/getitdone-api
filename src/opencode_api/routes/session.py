@@ -180,12 +180,12 @@ async def generate_title(
     except NotFoundError:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
-    # LiteLLM Provider로 제목 생성
+    # Z.ai(LiteLLM) Provider로 제목 생성
     model_id = request.model_id or "gemini/gemini-2.0-flash"
-    provider = get_provider("litellm")
+    provider = get_provider("zai")
 
     if not provider:
-        raise HTTPException(status_code=503, detail="LiteLLM provider not available")
+        raise HTTPException(status_code=503, detail="Title generation provider not available")
 
     prompt = f"""다음 사용자 메시지를 보고 짧은 제목을 생성해주세요.
 제목은 10자 이내, 따옴표 없이 제목만 출력.

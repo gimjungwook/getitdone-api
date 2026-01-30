@@ -6,154 +6,11 @@ from .provider import BaseProvider, ModelInfo, Message, StreamChunk, ToolCall
 
 
 DEFAULT_MODELS = {
-    "claude-sonnet-4-20250514": ModelInfo(
-        id="claude-sonnet-4-20250514",
-        name="Claude Sonnet 4",
-        provider_id="litellm",
-        context_limit=200000,
-        output_limit=64000,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=3.0,
-        cost_output=15.0,
-    ),
-    "claude-opus-4-20250514": ModelInfo(
-        id="claude-opus-4-20250514",
-        name="Claude Opus 4",
-        provider_id="litellm",
-        context_limit=200000,
-        output_limit=32000,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=15.0,
-        cost_output=75.0,
-    ),
-    "claude-3-5-haiku-20241022": ModelInfo(
-        id="claude-3-5-haiku-20241022",
-        name="Claude 3.5 Haiku",
-        provider_id="litellm",
-        context_limit=200000,
-        output_limit=8192,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=0.8,
-        cost_output=4.0,
-    ),
-    "gpt-4o": ModelInfo(
-        id="gpt-4o",
-        name="GPT-4o",
-        provider_id="litellm",
-        context_limit=128000,
-        output_limit=16384,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=2.5,
-        cost_output=10.0,
-    ),
-    "gpt-4o-mini": ModelInfo(
-        id="gpt-4o-mini",
-        name="GPT-4o Mini",
-        provider_id="litellm",
-        context_limit=128000,
-        output_limit=16384,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=0.15,
-        cost_output=0.6,
-    ),
-    "o1": ModelInfo(
-        id="o1",
-        name="O1",
-        provider_id="litellm",
-        context_limit=200000,
-        output_limit=100000,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=15.0,
-        cost_output=60.0,
-    ),
-    "gemini/gemini-2.0-flash": ModelInfo(
-        id="gemini/gemini-2.0-flash",
-        name="Gemini 2.0 Flash",
-        provider_id="litellm",
-        context_limit=1000000,
-        output_limit=8192,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=0.075,
-        cost_output=0.3,
-    ),
-    "gemini/gemini-2.5-pro-preview-05-06": ModelInfo(
-        id="gemini/gemini-2.5-pro-preview-05-06",
-        name="Gemini 2.5 Pro",
-        provider_id="litellm",
-        context_limit=1000000,
-        output_limit=65536,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=1.25,
-        cost_output=10.0,
-    ),
-    "groq/llama-3.3-70b-versatile": ModelInfo(
-        id="groq/llama-3.3-70b-versatile",
-        name="Llama 3.3 70B (Groq)",
-        provider_id="litellm",
-        context_limit=128000,
-        output_limit=32768,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=0.59,
-        cost_output=0.79,
-    ),
-    "deepseek/deepseek-chat": ModelInfo(
-        id="deepseek/deepseek-chat",
-        name="DeepSeek Chat",
-        provider_id="litellm",
-        context_limit=64000,
-        output_limit=8192,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=0.14,
-        cost_output=0.28,
-    ),
-    "openrouter/anthropic/claude-sonnet-4": ModelInfo(
-        id="openrouter/anthropic/claude-sonnet-4",
-        name="Claude Sonnet 4 (OpenRouter)",
-        provider_id="litellm",
-        context_limit=200000,
-        output_limit=64000,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=3.0,
-        cost_output=15.0,
-    ),
-    # Z.ai Free Flash Models
+    # Z.ai GLM-4.7 Flash (무료)
     "zai/glm-4.7-flash": ModelInfo(
         id="zai/glm-4.7-flash",
-        name="GLM-4.7 Flash (Free)",
-        provider_id="litellm",
-        context_limit=128000,
-        output_limit=8192,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=0.0,
-        cost_output=0.0,
-    ),
-    "zai/glm-4.6v-flash": ModelInfo(
-        id="zai/glm-4.6v-flash",
-        name="GLM-4.6V Flash (Free)",
-        provider_id="litellm",
-        context_limit=128000,
-        output_limit=8192,
-        supports_tools=True,
-        supports_streaming=True,
-        cost_input=0.0,
-        cost_output=0.0,
-    ),
-    "zai/glm-4.5-flash": ModelInfo(
-        id="zai/glm-4.5-flash",
-        name="GLM-4.5 Flash (Free)",
-        provider_id="litellm",
+        name="GLM-4.7 Flash",
+        provider_id="zai",
         context_limit=128000,
         output_limit=8192,
         supports_tools=True,
@@ -172,11 +29,11 @@ class LiteLLMProvider(BaseProvider):
     
     @property
     def id(self) -> str:
-        return "litellm"
+        return "zai"
     
     @property
     def name(self) -> str:
-        return "LiteLLM (Multi-Provider)"
+        return "Z.ai"
     
     @property
     def models(self) -> Dict[str, ModelInfo]:
