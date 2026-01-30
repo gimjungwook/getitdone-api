@@ -14,6 +14,7 @@ from ..provider import get_provider, list_providers
 from ..provider.provider import Message as ProviderMessage, StreamChunk, ToolCall
 from ..tool import get_tool, get_tools_schema, ToolContext, get_registry
 from ..core.config import settings
+from ..core.storage import Storage
 from ..core.bus import Bus, PART_UPDATED, PartPayload, STEP_STARTED, STEP_FINISHED, StepPayload, TOOL_STATE_CHANGED, ToolStatePayload
 from ..agent import get as get_agent, default_agent, get_system_prompt, is_tool_allowed, AgentInfo, get_prompt_for_provider
 
@@ -38,6 +39,9 @@ class LoopState(BaseModel):
     stop_reason: Optional[str] = None
     paused: bool = False
     pause_reason: Optional[str] = None
+    todo_reminder_count: int = 0
+    max_todo_reminders: int = 2
+    pending_reminder: Optional[str] = None
 
 
 import re
@@ -105,15 +109,29 @@ class SessionPrompt:
 
                 print(f"[AGENTIC LOOP] Starting step {state.step}, stop_reason={state.stop_reason}", flush=True)
 
-                turn_input = input if state.step == 1 else PromptInput(
-                    content="",
-                    provider_id=input.provider_id,
-                    model_id=input.model_id,
-                    temperature=input.temperature,
-                    max_tokens=input.max_tokens,
-                    tools_enabled=input.tools_enabled,
-                    auto_continue=False,
-                )
+                if state.step == 1:
+                    turn_input = input
+                elif state.pending_reminder:
+                    turn_input = PromptInput(
+                        content=state.pending_reminder,
+                        provider_id=input.provider_id,
+                        model_id=input.model_id,
+                        temperature=input.temperature,
+                        max_tokens=input.max_tokens,
+                        tools_enabled=input.tools_enabled,
+                        auto_continue=False,
+                    )
+                    state.pending_reminder = None
+                else:
+                    turn_input = PromptInput(
+                        content="",
+                        provider_id=input.provider_id,
+                        model_id=input.model_id,
+                        temperature=input.temperature,
+                        max_tokens=input.max_tokens,
+                        tools_enabled=input.tools_enabled,
+                        auto_continue=False,
+                    )
 
                 if state.step > 1:
                     yield StreamChunk(type="step", text=f"Step {state.step}")
@@ -121,11 +139,13 @@ class SessionPrompt:
                 # Track tool calls in this turn
                 has_tool_calls_this_turn = False
 
+                # 리마인더 턴은 content를 전달해야 하므로 is_continuation=False
+                is_reminder_turn = bool(turn_input.content and state.step > 1)
                 async for chunk in cls._single_turn(
                     session_id,
                     turn_input,
                     agent,
-                    is_continuation=(state.step > 1),
+                    is_continuation=(state.step > 1 and not is_reminder_turn),
                     user_id=user_id
                 ):
                     yield chunk
@@ -168,9 +188,16 @@ class SessionPrompt:
                 if processor.is_doom_loop():
                     break
 
-                # If this turn had no new tool calls (just text response), we're done
+                # If this turn had no new tool calls (just text response), check pending todos
                 if state.stop_reason != "tool_calls":
-                    print(f"[AGENTIC LOOP] Breaking: stop_reason != tool_calls", flush=True)
+                    if state.todo_reminder_count < state.max_todo_reminders:
+                        has_pending = await cls._has_pending_todos(session_id)
+                        if has_pending:
+                            state.todo_reminder_count += 1
+                            state.pending_reminder = "[System] 아직 완료되지 않은 todo 항목이 있습니다. todo 목록을 확인하고 남은 작업을 계속 진행하세요."
+                            print(f"[AGENTIC LOOP] Pending todos found, injecting reminder ({state.todo_reminder_count}/{state.max_todo_reminders})", flush=True)
+                            continue
+                    print(f"[AGENTIC LOOP] Breaking: stop_reason != tool_calls (no pending todos or max reminders reached)", flush=True)
                     break
 
             # Loop 종료 후 상태 메시지만 출력 (summary LLM 호출 없음!)
@@ -645,6 +672,17 @@ class SessionPrompt:
 
         return output, status
     
+    @classmethod
+    async def _has_pending_todos(cls, session_id: str) -> bool:
+        """세션에 pending 또는 in_progress 상태의 todo가 있는지 확인"""
+        todos = await Storage.read(["todo", session_id])
+        if not todos:
+            return False
+        return any(
+            t.get("status") in ("pending", "in_progress")
+            for t in todos
+        )
+
     @classmethod
     def cancel(cls, session_id: str) -> bool:
         """Cancel an active session."""
