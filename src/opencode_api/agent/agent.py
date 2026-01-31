@@ -102,21 +102,6 @@ DEFAULT_AGENTS: Dict[str, AgentInfo] = {
             AgentPermission(tool_name="question", action="allow"),
         ],
     ),
-    "plan": AgentInfo(
-        id="plan",
-        name="plan",
-        description="Read-only agent for analysis and planning. Does not modify files.",
-        mode="primary",
-        auto_continue=False,
-        permissions=[
-            AgentPermission(tool_name="*", action="deny"),
-            AgentPermission(tool_name="websearch", action="allow"),
-            AgentPermission(tool_name="webfetch", action="allow"),
-            AgentPermission(tool_name="todo", action="allow"),
-            AgentPermission(tool_name="question", action="allow"),
-            AgentPermission(tool_name="skill", action="allow"),
-        ],
-    ),
     "general": AgentInfo(
         id="general",
         name="general",
