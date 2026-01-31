@@ -17,6 +17,9 @@ class SessionInfo(BaseModel):
     provider_id: Optional[str] = None
     model_id: Optional[str] = None
     agent_id: Optional[str] = None
+    total_cost: float = 0.0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
     
     
 class SessionCreate(BaseModel):
@@ -76,6 +79,9 @@ class Session:
                 provider_id=result.data.get("provider_id"),
                 model_id=result.data.get("model_id"),
                 agent_id=result.data.get("agent_id"),
+                total_cost=result.data.get("total_cost", 0.0),
+                total_input_tokens=result.data.get("total_input_tokens", 0),
+                total_output_tokens=result.data.get("total_output_tokens", 0),
             )
         
         data = await Storage.read(["session", session_id])
@@ -137,6 +143,9 @@ class Session:
                     provider_id=row.get("provider_id"),
                     model_id=row.get("model_id"),
                     agent_id=row.get("agent_id"),
+                    total_cost=row.get("total_cost", 0.0),
+                    total_input_tokens=row.get("total_input_tokens", 0),
+                    total_output_tokens=row.get("total_output_tokens", 0),
                 )
                 for row in result.data
             ]

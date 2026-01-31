@@ -115,17 +115,31 @@ DEFAULT_AGENTS: Dict[str, AgentInfo] = {
         ],
     ),
     "explore": AgentInfo(
-        id="explore",
-        name="explore",
-        description="Fast agent specialized for exploring codebases and searching for information.",
-        mode="subagent",
-        auto_continue=False,
-        permissions=[
-            AgentPermission(tool_name="*", action="deny"),
-            AgentPermission(tool_name="websearch", action="allow"),
-            AgentPermission(tool_name="webfetch", action="allow"),
-        ],
-    ),
+         id="explore",
+         name="explore",
+         description="Fast agent specialized for exploring codebases and searching for information.",
+         mode="subagent",
+         auto_continue=False,
+         permissions=[
+             AgentPermission(tool_name="*", action="deny"),
+             AgentPermission(tool_name="websearch", action="allow"),
+             AgentPermission(tool_name="webfetch", action="allow"),
+         ],
+     ),
+    "compaction": AgentInfo(
+         id="compaction",
+         name="Compaction",
+         description="Summarizes conversation context for compaction",
+         mode="primary",
+         hidden=True,
+         native=True,
+         auto_continue=False,
+         max_steps=1,
+         tools=[],
+         permissions=[
+             AgentPermission(tool_name="*", action="allow"),
+         ],
+     ),
 }
 
 # Custom agents loaded from config

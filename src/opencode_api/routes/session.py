@@ -5,6 +5,11 @@ from pydantic import BaseModel
 import json
 
 from ..session import Session, SessionInfo, SessionCreate, Message, SessionPrompt
+from ..session.compaction import (
+    SessionCompaction,
+    compact_session,
+    get_session_compaction_status,
+)
 from ..session.prompt import PromptInput
 from ..core.storage import NotFoundError
 from ..core.auth import AuthUser, optional_auth, require_auth
@@ -98,12 +103,20 @@ async def delete_session(
 async def list_messages(
     session_id: str,
     limit: Optional[int] = Query(None, description="Maximum number of messages to return"),
+    offset: Optional[int] = Query(None, description="Number of messages to skip"),
+    order: Optional[str] = Query("asc", description="Sort order: 'asc' (oldest first) or 'desc' (newest first)"),
     user: Optional[AuthUser] = Depends(optional_auth)
 ):
     try:
         user_id = user.id if user else None
         await Session.get(session_id, user_id)
-        return await Message.list(session_id, limit, user_id)
+        messages, total_count = await Message.list(session_id, limit, offset, order or "asc", user_id)
+        return {
+            "messages": messages,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset or 0,
+        }
     except NotFoundError:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
@@ -174,13 +187,11 @@ async def generate_title(
     """첫 메시지 기반으로 세션 제목 생성"""
     user_id = user.id if user else None
 
-    # 세션 존재 확인
     try:
         await Session.get(session_id, user_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
-    # Z.ai(LiteLLM) Provider로 제목 생성
     model_id = request.model_id or "gemini/gemini-2.0-flash"
     provider = get_provider("zai")
 
@@ -198,9 +209,74 @@ async def generate_title(
         result = await provider.complete(model_id, prompt, max_tokens=50)
         title = result.strip()[:30]
 
-        # 세션 제목 업데이트
         await Session.update(session_id, {"title": title}, user_id)
 
         return {"title": title}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate title: {str(e)}")
+
+
+@router.get("/{session_id}/cost")
+async def get_session_cost(
+    session_id: str,
+    user: Optional[AuthUser] = Depends(optional_auth)
+):
+    try:
+        user_id = user.id if user else None
+        session = await Session.get(session_id, user_id)
+        
+        input_cost = session.total_input_tokens / 1_000_000 * 3.0
+        output_cost = session.total_output_tokens / 1_000_000 * 15.0
+        
+        return {
+            "total_cost": session.total_cost,
+            "total_input_tokens": session.total_input_tokens,
+            "total_output_tokens": session.total_output_tokens,
+            "breakdown": {
+                "input_cost": input_cost,
+                "output_cost": output_cost,
+            }
+        }
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+
+@router.post("/{session_id}/compact")
+async def compact_session_endpoint(
+    session_id: str,
+    user: Optional[AuthUser] = Depends(optional_auth)
+):
+    try:
+        user_id = user.id if user else None
+        await Session.get(session_id, user_id)
+        
+        result = await compact_session(session_id, user_id)
+        
+        if result is None:
+            raise HTTPException(status_code=400, detail="Failed to compact session")
+        
+        return {
+            "session_id": result.session_id,
+            "summary": result.summary,
+            "messages_compacted": result.messages_compacted,
+            "tokens_saved": result.tokens_saved,
+            "cost_saved": result.cost_saved,
+            "compacted_at": result.compacted_at.isoformat()
+        }
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+
+@router.get("/{session_id}/compaction-status")
+async def get_compaction_status_endpoint(
+    session_id: str,
+    user: Optional[AuthUser] = Depends(optional_auth)
+):
+    try:
+        user_id = user.id if user else None
+        await Session.get(session_id, user_id)
+        
+        status = await get_session_compaction_status(session_id)
+        return status
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")

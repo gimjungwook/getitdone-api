@@ -95,6 +95,12 @@ class SessionPrompt:
         # SessionProcessor 가져오기
         processor = SessionProcessor.get_or_create(session_id, max_steps=max_steps)
 
+        # user message를 먼저 생성하여 parent_id 확보
+        parent_id: Optional[str] = None
+        if input.content:
+            user_msg = await Message.create_user(session_id, input.content, user_id)
+            parent_id = user_msg.id
+
         try:
             while processor.should_continue() and not state.paused:
                 state.step += 1
@@ -106,6 +112,13 @@ class SessionPrompt:
                     step=state.step,
                     max_steps=max_steps
                 ))
+
+                # Yield step_start chunk for SSE
+                yield StreamChunk(
+                    type="step_start",
+                    step_number=state.step,
+                    max_steps=max_steps
+                )
 
                 print(f"[AGENTIC LOOP] Starting step {state.step}, stop_reason={state.stop_reason}", flush=True)
 
@@ -146,7 +159,9 @@ class SessionPrompt:
                     turn_input,
                     agent,
                     is_continuation=(state.step > 1 and not is_reminder_turn),
-                    user_id=user_id
+                    user_id=user_id,
+                    parent_id=parent_id,
+                    skip_user_message=True,  # user msg는 이미 _agentic_loop에서 생성됨
                 ):
                     yield chunk
 
@@ -182,6 +197,13 @@ class SessionPrompt:
                     max_steps=max_steps
                 ))
 
+                # Yield step_finish chunk for SSE
+                yield StreamChunk(
+                    type="step_finish",
+                    step_number=state.step,
+                    stop_reason=state.stop_reason
+                )
+
                 print(f"[AGENTIC LOOP] End of step {state.step}: stop_reason={state.stop_reason}, has_tool_calls={has_tool_calls_this_turn}", flush=True)
 
                 # Doom loop 감지 시 중단
@@ -212,6 +234,14 @@ class SessionPrompt:
                 del cls._loop_states[session_id]
             # SessionProcessor 정리
             SessionProcessor.remove(session_id)
+            
+            # Auto-compaction check
+            try:
+                from .compaction import should_compact_session, compact_session
+                if await should_compact_session(session_id):
+                    await compact_session(session_id, user_id)
+            except Exception:
+                pass
     
     @classmethod
     def _infer_provider_from_model(cls, model_id: str) -> str:
@@ -240,7 +270,9 @@ class SessionPrompt:
         input: PromptInput,
         agent: AgentInfo,
         is_continuation: bool = False,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        skip_user_message: bool = False
     ) -> AsyncIterator[StreamChunk]:
         session = await Session.get(session_id, user_id)
 
@@ -262,15 +294,27 @@ class SessionPrompt:
         if not provider:
             yield StreamChunk(type="error", error=f"Provider not found: {provider_id}")
             return
-        
-        # Only create user message if there's content (not a continuation)
-        if input.content and not is_continuation:
+
+        # user message 생성 (skip_user_message=True면 이미 외부에서 생성됨)
+        if input.content and not is_continuation and not skip_user_message:
             user_msg = await Message.create_user(session_id, input.content, user_id)
-        
-        assistant_msg = await Message.create_assistant(session_id, provider_id, model_id, user_id)
+            # parent_id가 없으면 방금 만든 user_msg.id 사용
+            if not parent_id:
+                parent_id = user_msg.id
+
+        assistant_msg = await Message.create_assistant(
+            session_id, provider_id, model_id, user_id, parent_id=parent_id
+        )
+
+        # 메시지 시작 알림 (프론트엔드가 새 메시지 경계를 인식)
+        yield StreamChunk(
+            type="message_start",
+            message_id=assistant_msg.id,
+            parent_id=parent_id
+        )
         
         # Build message history
-        history = await Message.list(session_id, user_id=user_id)
+        history, _ = await Message.list(session_id, user_id=user_id)
         messages = cls._build_messages(history[:-1], include_tool_results=True)
         
         # Build system prompt with provider-specific optimization
@@ -429,6 +473,35 @@ class SessionPrompt:
                 elif chunk.type == "done":
                     if chunk.usage:
                         await Message.set_usage(session_id, assistant_msg.id, chunk.usage, user_id)
+                        
+                        input_tokens = chunk.usage.get("input_tokens", 0)
+                        output_tokens = chunk.usage.get("output_tokens", 0)
+                        
+                        session_info = await Session.get(session_id, user_id)
+                        
+                        from ..provider import get_model
+                        model_info = None
+                        if session_info.provider_id and session_info.model_id:
+                            model_info = get_model(session_info.provider_id, session_info.model_id)
+                        
+                        cost_input = 0.0
+                        cost_output = 0.0
+                        if model_info:
+                            cost_input = (input_tokens / 1_000_000) * model_info.cost_input
+                            cost_output = (output_tokens / 1_000_000) * model_info.cost_output
+                        
+                        new_total_cost = session_info.total_cost + cost_input + cost_output
+                        new_input_tokens = session_info.total_input_tokens + input_tokens
+                        new_output_tokens = session_info.total_output_tokens + output_tokens
+                        
+                        await Session.update(session_id, {
+                            "total_cost": new_total_cost,
+                            "total_input_tokens": new_input_tokens,
+                            "total_output_tokens": new_output_tokens,
+                        }, user_id)
+                    
+                    if chunk.stop_reason:
+                        await Message.set_finish(session_id, assistant_msg.id, chunk.stop_reason, user_id)
                     yield chunk
                 
                 elif chunk.type == "error":

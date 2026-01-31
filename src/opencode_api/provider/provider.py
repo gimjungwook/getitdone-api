@@ -43,12 +43,20 @@ class ToolResult(BaseModel):
 
 
 class StreamChunk(BaseModel):
-    type: str  # "text", "reasoning", "tool_call", "tool_result", "done", "error"
+    type: str  # "text", "reasoning", "tool_call", "tool_result", "done", "error", "message_start", "step_start", "step_finish"
     text: Optional[str] = None
     tool_call: Optional[ToolCall] = None
     error: Optional[str] = None
     usage: Optional[Dict[str, int]] = None
     stop_reason: Optional[str] = None  # "end_turn", "tool_calls", "max_tokens", etc.
+    message_id: Optional[str] = None   # 현재 assistant 메시지 ID
+    parent_id: Optional[str] = None    # 소속 user 메시지 ID
+    # Step tracking fields
+    step_number: Optional[int] = None
+    max_steps: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cost: Optional[float] = None
 
 
 @runtime_checkable

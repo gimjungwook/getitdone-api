@@ -123,9 +123,10 @@ async def test_step_parts_in_message_list():
         stop_reason="end_turn"
     ))
     
-    messages = await Message.list(session_id)
+    messages, total_count = await Message.list(session_id)
     
     assert len(messages) == 1
+    assert total_count == 1
     assert isinstance(messages[0], AssistantMessage)
     assert len(messages[0].parts) == 3
     

@@ -281,12 +281,22 @@ class Message:
         raise NotFoundError(["part", message_id, part_id])
     
     @staticmethod
-    async def list(session_id: str, limit: Optional[int] = None, user_id: Optional[str] = None) -> List[Union[UserMessage, AssistantMessage]]:
+    async def list(session_id: str, limit: Optional[int] = None, offset: Optional[int] = None, order: str = "asc", user_id: Optional[str] = None) -> tuple[List[Union[UserMessage, AssistantMessage]], int]:
         if supabase_enabled() and user_id:
             client = get_client()
-            query = client.table("opencode_messages").select("*, opencode_message_parts(*)").eq("session_id", session_id).order("created_at")
-            if limit:
+            # Get total count
+            count_result = client.table("opencode_messages").select("*", count="exact").eq("session_id", session_id).execute()
+            total_count = count_result.count if hasattr(count_result, 'count') else 0
+            
+            # Build query with ordering
+            query = client.table("opencode_messages").select("*, opencode_message_parts(*)").eq("session_id", session_id).order("created_at", desc=(order == "desc"))
+            
+            # Apply offset and limit
+            if offset is not None and limit is not None:
+                query = query.range(offset, offset + limit - 1)
+            elif limit:
                 query = query.limit(limit)
+            
             result = query.execute()
             
             messages = []
@@ -334,23 +344,35 @@ class Message:
                         parent_id=data.get("parent_id"),
                         finish=data.get("finish"),
                     ))
-            return messages
+            return (messages, total_count)
         
         message_keys = await Storage.list(["message", session_id])
-        messages = []
+        all_messages = []
         
         for key in message_keys:
-            if limit and len(messages) >= limit:
-                break
             data = await Storage.read(key)
             if data:
                 if data.get("role") == "user":
-                    messages.append(UserMessage(**data))
+                    all_messages.append(UserMessage(**data))
                 else:
-                    messages.append(AssistantMessage(**data))
+                    all_messages.append(AssistantMessage(**data))
         
-        messages.sort(key=lambda m: m.created_at)
-        return messages
+        # Sort by created_at
+        all_messages.sort(key=lambda m: m.created_at)
+        
+        # Apply descending order if requested
+        if order == "desc":
+            all_messages.reverse()
+        
+        # Get total count before slicing
+        total_count = len(all_messages)
+        
+        # Apply offset and limit
+        start_idx = offset or 0
+        end_idx = start_idx + limit if limit else None
+        messages = all_messages[start_idx:end_idx]
+        
+        return (messages, total_count)
     
     @staticmethod
     async def delete(session_id: str, message_id: str, user_id: Optional[str] = None) -> bool:
