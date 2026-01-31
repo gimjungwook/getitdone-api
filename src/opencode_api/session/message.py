@@ -16,17 +16,25 @@ class MessagePart(BaseModel):
     - "reasoning": Claude의 thinking/extended thinking
     - "tool_call": 도구 호출 (tool_name, tool_args, tool_status)
     - "tool_result": 도구 실행 결과 (tool_output)
+    - "step_start": 단계 시작 (step_number, max_steps)
+    - "step_finish": 단계 완료 (step_number, max_steps, tokens, cost, stop_reason)
     """
     id: str
     session_id: str
     message_id: str
-    type: str  # "text", "reasoning", "tool_call", "tool_result"
+    type: str  # "text", "reasoning", "tool_call", "tool_result", "step_start", "step_finish"
     content: Optional[str] = None  # text, reasoning용
     tool_call_id: Optional[str] = None
     tool_name: Optional[str] = None
     tool_args: Optional[Dict[str, Any]] = None
     tool_output: Optional[str] = None
     tool_status: Optional[str] = None  # "pending", "running", "completed", "error"
+    step_number: Optional[int] = None
+    max_steps: Optional[int] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cost: Optional[float] = None
+    stop_reason: Optional[str] = None
 
 
 class MessageInfo(BaseModel):
@@ -38,6 +46,8 @@ class MessageInfo(BaseModel):
     provider_id: Optional[str] = None
     usage: Optional[Dict[str, int]] = None
     error: Optional[str] = None
+    parent_id: Optional[str] = None   # 소속 user 메시지 ID
+    finish: Optional[str] = None      # 종료 이유 ("tool_calls", "stop" 등)
 
 
 class UserMessage(MessageInfo):
@@ -85,11 +95,12 @@ class Message:
         provider_id: Optional[str] = None,
         model: Optional[str] = None,
         user_id: Optional[str] = None,
-        summary: bool = False
+        summary: bool = False,
+        parent_id: Optional[str] = None
     ) -> AssistantMessage:
         message_id = Identifier.generate("message")
         now = datetime.utcnow()
-        
+
         msg = AssistantMessage(
             id=message_id,
             session_id=session_id,
@@ -98,17 +109,21 @@ class Message:
             model=model,
             parts=[],
             summary=summary,
+            parent_id=parent_id,
         )
-        
+
         if supabase_enabled() and user_id:
             client = get_client()
-            client.table("opencode_messages").insert({
+            insert_data = {
                 "id": message_id,
                 "session_id": session_id,
                 "role": "assistant",
                 "provider_id": provider_id,
                 "model_id": model,
-            }).execute()
+            }
+            if parent_id:
+                insert_data["parent_id"] = parent_id
+            client.table("opencode_messages").insert(insert_data).execute()
         else:
             await Storage.write(["message", session_id, message_id], msg.model_dump())
         
@@ -145,6 +160,12 @@ class Message:
                     tool_args=p.get("tool_args"),
                     tool_output=p.get("tool_output"),
                     tool_status=p.get("tool_status"),
+                    step_number=p.get("step_number"),
+                    max_steps=p.get("max_steps"),
+                    input_tokens=p.get("input_tokens"),
+                    output_tokens=p.get("output_tokens"),
+                    cost=p.get("cost"),
+                    stop_reason=p.get("stop_reason"),
                 )
                 for p in data.get("opencode_message_parts", [])
             ]
@@ -186,6 +207,12 @@ class Message:
                 "tool_args": part.tool_args,
                 "tool_output": part.tool_output,
                 "tool_status": part.tool_status,
+                "step_number": part.step_number,
+                "max_steps": part.max_steps,
+                "input_tokens": part.input_tokens,
+                "output_tokens": part.output_tokens,
+                "cost": part.cost,
+                "stop_reason": part.stop_reason,
             }).execute()
         else:
             msg_data = await Storage.read(["message", session_id, message_id])
@@ -227,6 +254,12 @@ class Message:
                     tool_args=p.get("tool_args"),
                     tool_output=p.get("tool_output"),
                     tool_status=p.get("tool_status"),
+                    step_number=p.get("step_number"),
+                    max_steps=p.get("max_steps"),
+                    input_tokens=p.get("input_tokens"),
+                    output_tokens=p.get("output_tokens"),
+                    cost=p.get("cost"),
+                    stop_reason=p.get("stop_reason"),
                 )
             raise NotFoundError(["part", message_id, part_id])
         
@@ -279,6 +312,12 @@ class Message:
                             tool_args=p.get("tool_args"),
                             tool_output=p.get("tool_output"),
                             tool_status=p.get("tool_status"),
+                            step_number=p.get("step_number"),
+                            max_steps=p.get("max_steps"),
+                            input_tokens=p.get("input_tokens"),
+                            output_tokens=p.get("output_tokens"),
+                            cost=p.get("cost"),
+                            stop_reason=p.get("stop_reason"),
                         )
                         for p in data.get("opencode_message_parts", [])
                     ]
@@ -292,6 +331,8 @@ class Message:
                         usage={"input_tokens": data.get("input_tokens", 0), "output_tokens": data.get("output_tokens", 0)} if data.get("input_tokens") else None,
                         error=data.get("error"),
                         parts=parts,
+                        parent_id=data.get("parent_id"),
+                        finish=data.get("finish"),
                     ))
             return messages
         
@@ -345,4 +386,15 @@ class Message:
             msg_data = await Storage.read(["message", session_id, message_id])
             if msg_data:
                 msg_data["error"] = error
+                await Storage.write(["message", session_id, message_id], msg_data)
+
+    @staticmethod
+    async def set_finish(session_id: str, message_id: str, finish: str, user_id: Optional[str] = None) -> None:
+        if supabase_enabled() and user_id:
+            client = get_client()
+            client.table("opencode_messages").update({"finish": finish}).eq("id", message_id).execute()
+        else:
+            msg_data = await Storage.read(["message", session_id, message_id])
+            if msg_data:
+                msg_data["finish"] = finish
                 await Storage.write(["message", session_id, message_id], msg_data)
