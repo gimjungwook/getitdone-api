@@ -60,8 +60,15 @@ async def ask_questions(
     timeout: float = 300.0,  # 5 minutes default timeout
 ) -> List[List[str]]:
     """Ask questions and wait for user response."""
-    # tool_call_id를 request_id로 사용 (프론트엔드에서 바로 사용 가능)
     request_id = tool_call_id or generate_id("question")
+    
+    # 같은 request_id가 이미 pending이면 기존 future 재사용 (LLM 중복 호출 방지)
+    if request_id in _pending_questions:
+        logger.warning(f"[question] Duplicate request_id={request_id}, reusing existing future")
+        try:
+            return await asyncio.wait_for(_pending_questions[request_id], timeout=timeout)
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"Question timed out after {timeout} seconds")
     
     request = QuestionRequest(
         id=request_id,

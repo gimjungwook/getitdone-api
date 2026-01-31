@@ -47,9 +47,6 @@ async def dismiss_question(request_id: str):
     success = await reject_question(request_id)
     
     if not success:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Question request '{request_id}' not found or already handled"
-        )
+        return {"status": "already_handled", "request_id": request_id}
     
     return {"status": "rejected", "request_id": request_id}
