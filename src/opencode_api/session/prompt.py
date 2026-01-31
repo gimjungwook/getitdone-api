@@ -232,14 +232,22 @@ class SessionPrompt:
         finally:
             if session_id in cls._loop_states:
                 del cls._loop_states[session_id]
-            # SessionProcessor 정리
             SessionProcessor.remove(session_id)
-            
-            # Auto-compaction check
+
             try:
-                from .compaction import should_compact_session, compact_session
-                if await should_compact_session(session_id):
-                    await compact_session(session_id, user_id)
+                from .compaction import is_overflow, prune, compact, should_compact_session
+                session_info = await Session.get(session_id, user_id)
+                mid = session_info.model_id or input.model_id or "gemini/gemini-2.0-flash"
+                pid = session_info.provider_id or input.provider_id or "litellm"
+
+                overflow = await is_overflow(session_id, mid, pid, user_id)
+                if overflow:
+                    await prune(session_id, user_id)
+                    still_overflow = await is_overflow(session_id, mid, pid, user_id)
+                    if still_overflow:
+                        await compact(session_id, user_id)
+                elif await should_compact_session(session_id, user_id):
+                    await compact(session_id, user_id)
             except Exception:
                 pass
     

@@ -6,10 +6,12 @@ import json
 
 from ..session import Session, SessionInfo, SessionCreate, Message, SessionPrompt
 from ..session.compaction import (
-    SessionCompaction,
     compact_session,
     get_session_compaction_status,
+    prune,
+    is_overflow,
 )
+from ..util.token import count_messages
 from ..session.prompt import PromptInput
 from ..core.storage import NotFoundError
 from ..core.auth import AuthUser, optional_auth, require_auth
@@ -262,6 +264,58 @@ async def compact_session_endpoint(
             "tokens_saved": result.tokens_saved,
             "cost_saved": result.cost_saved,
             "compacted_at": result.compacted_at.isoformat()
+        }
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+
+@router.get("/{session_id}/tokens")
+async def get_session_tokens(
+    session_id: str,
+    user: Optional[AuthUser] = Depends(optional_auth),
+):
+    try:
+        user_id = user.id if user else None
+        session = await Session.get(session_id, user_id)
+        messages, total_count = await Message.list(session_id, user_id=user_id)
+
+        token_info = count_messages(messages)
+        mid = session.model_id or "gemini/gemini-2.0-flash"
+        pid = session.provider_id or "litellm"
+        overflow = await is_overflow(session_id, mid, pid, user_id)
+
+        return {
+            "session_id": session_id,
+            "message_count": total_count,
+            "input_tokens": token_info.input_tokens,
+            "output_tokens": token_info.output_tokens,
+            "total_tokens": token_info.total,
+            "is_overflow": overflow,
+            "model_id": mid,
+            "provider_id": pid,
+        }
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+
+
+@router.post("/{session_id}/prune")
+async def prune_session_endpoint(
+    session_id: str,
+    user: Optional[AuthUser] = Depends(optional_auth),
+):
+    try:
+        user_id = user.id if user else None
+        await Session.get(session_id, user_id)
+
+        result = await prune(session_id, user_id)
+
+        if result is None:
+            return {"pruned": False, "message": "Nothing to prune"}
+
+        return {
+            "pruned": True,
+            "pruned_count": result.pruned_count,
+            "tokens_saved": result.tokens_saved,
         }
     except NotFoundError:
         raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
