@@ -553,7 +553,7 @@ Parallel Speedup: ~35% faster than sequential
 
 ### Phase 1: 코드 삭제
 
-- [ ] 1-1. 전체 sandbox 관련 코드 삭제 (95개 파일)
+- [x] 1-1. 전체 sandbox 관련 코드 삭제 (95개 파일) ✓ Build successful
 
   **What to do**:
   - **프론트엔드 삭제**:
